@@ -1,0 +1,2 @@
+# itens dentro de .vagrant não são versionados, pois são arquivos de configuração do Vagrant.
+.vagrant/

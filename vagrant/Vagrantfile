@@ -29,12 +29,12 @@ jenkins.vm.network "private_network", ip: "192.168.56.10"
 # 1024 MB de memória e 2 CPUs.
 jenkins.vm.provider "virtualbox" do |vb|
   vb.memory = 1024
-  vb.cpus = 2
+  vb.cpus = 1
 end
 
 # Executa o script responsável pela configuração do Jenkins
 # e das demais ferramentas necessárias nesta máquina.
-jenkins.vm.provision "shell", path: "scripts/jenkins.sh"
+jenkins.vm.provision "shell", path: "scripts/setup-jenkins.sh"
 
 
 end
@@ -58,12 +58,12 @@ prod.vm.network "private_network", ip: "192.168.56.20"
 # 1024 MB de memória e 2 CPUs.
 prod.vm.provider "virtualbox" do |vb|
   vb.memory = 1024
-  vb.cpus = 2
+  vb.cpus = 1
 end
 
 # Executa o script responsável pela instalação do Node.js
 # e configuração do ambiente de produção.
-prod.vm.provision "shell", path: "scripts/nodejs.sh"
+prod.vm.provision "shell", path: "scripts/setup-node.sh"
 
 # ========================================================
 # EXTRA - PASTA COMPARTILHADA
