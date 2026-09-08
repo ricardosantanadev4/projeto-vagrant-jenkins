@@ -1,3 +1,34 @@
 comando para entrar na vm_prod pela vm_jenkins:
 
 ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes vagrant@192.168.56.20
+
+
+executar dps:
+
+vagrant ssg jenkins
+
+cd .ssh/
+
+ls
+
+cat id_ed25519.pub
+
+ssh-keygen -ty ed25519 -C "any"
+
+cd var/lib/jenkins
+
+mkdir .ssh/
+
+cd .ssh/
+
+sudo nano knows_hosts
+
+ctrl + o (salvar)
+ctrll + x (fechar)
+
+sudo ssh-keyscan -H 192.168.56.10 | sudo tee -a /var/lib/jenkins/.ssh/knows_hosts > /dev/null
+
+cat knows_hosts
+
+ver senha do jenkins se necessário > sudo cat secrets/initialAdminPassword
+
