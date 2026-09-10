@@ -1,4 +1,4 @@
-// Devemos aplicar os conceitos de Jenkins ao projeto em questão (pratica_jenkins)
+// Devemos aplicar os conceitos de Jenkins ao projeto em questão (app)
 
 // Requisitos mínimos:
 //    - Instalar dependências
@@ -15,7 +15,7 @@ pipeline {
         stage("Install"){
             steps{
                 echo('Instalação de dependências')
-                dir('pratica_jenkins'){
+                dir('app'){
                     sh "npm install"
                 }
                 echo(message: 'Etapa Finalizada')
@@ -24,7 +24,7 @@ pipeline {
         stage("Build"){
             steps{
                 echo(message: 'Etapa de Build')
-                dir('pratica_jenkins'){
+                dir('app'){
                     sh "npm run build"
                 }
                 echo(message: 'Etapa Finalizada')
@@ -33,7 +33,7 @@ pipeline {
         stage("Test"){
             steps{
                 echo(message: 'Etapa de Testes')
-                dir('pratica_jenkins'){
+                dir('app'){
                     sh "npm test"
                 }
                 echo(message: 'Etapa Finalizada')
