@@ -39,13 +39,32 @@ pipeline {
                 echo(message: 'Etapa Finalizada')
             }
         }
-        stage("Deploy"){
-            steps{
-                echo(message: 'Etapa de Deploy')
-                dir('app'){
-                    sh "npm run deploy"
+        stage("Deploy") {
+            steps {
+                echo('Etapa de Deploy')
+
+                sshagent(credentials: 'ssh-key') {
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no vagrant@192.168.56.20 \
+                            "mkdir -p /home/vagrant/app"
+
+                        tar --exclude=node_modules -czf - -C app . | \
+                            ssh -o StrictHostKeyChecking=no vagrant@192.168.56.20 \
+                            "tar -xzf - -C /home/vagrant/app"
+
+                        ssh -o StrictHostKeyChecking=no vagrant@192.168.56.20 '
+                            cd /home/vagrant/app &&
+                            npm install --omit=dev &&
+                            if [ -f app.pid ]; then
+                                kill $(cat app.pid) 2>/dev/null || true
+                            fi &&
+                            nohup npm start > app.log 2>&1 &
+                            echo $! > app.pid
+                        '
+                    '''
                 }
-                echo(message: 'Etapa Finalizada')
+
+                echo('Etapa Finalizada')
             }
         }
     }
