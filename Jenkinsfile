@@ -39,6 +39,15 @@ pipeline {
                 echo(message: 'Etapa Finalizada')
             }
         }
+        stage("Deploy"){
+            steps{
+                echo(message: 'Etapa de Deploy')
+                dir('app'){
+                    sh "npm run deploy"
+                }
+                echo(message: 'Etapa Finalizada')
+            }
+        }
     }
     
     post {
