@@ -43,7 +43,7 @@ pipeline {
             steps {
                 echo('Etapa de Deploy')
 
-                sshagent(credentials: 'ssh-key') {
+                sshagent(credentials: ['ssh-key']) {
                     sh '''
                         ssh -o StrictHostKeyChecking=no vagrant@192.168.56.20 \
                             "mkdir -p /home/vagrant/app"
