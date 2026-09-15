@@ -2,47 +2,41 @@ pipeline {
 
     agent any
 
-    environment {
-        DEPLOY_HOST = '192.168.56.20'
-        DEPLOY_USER = 'vagrant'
-        DEPLOY_PATH = '/home/vagrant/app'
-    }
-
     stages {
 
         stage("Install") {
             steps {
-                echo 'Instalação de dependências'
+                echo "Instalação de dependências"
 
-                dir('app') {
-                    sh 'npm install'
+                dir("app") {
+                    sh "npm install"
                 }
 
-                echo 'Etapa Finalizada'
+                echo "Etapa Finalizada"
             }
         }
 
         stage("Build") {
             steps {
-                echo 'Etapa de Build'
+                echo "Etapa de Build"
 
-                dir('app') {
-                    sh 'npm run build'
+                dir("app") {
+                    sh "npm run build"
                 }
 
-                echo 'Etapa Finalizada'
+                echo "Etapa Finalizada"
             }
         }
 
         stage("Test") {
             steps {
-                echo 'Etapa de Testes'
+                echo "Etapa de Testes"
 
-                dir('app') {
-                    sh 'npm test'
+                dir("app") {
+                    sh "npm test"
                 }
 
-                echo 'Etapa Finalizada'
+                echo "Etapa Finalizada"
             }
         }
 
@@ -55,7 +49,7 @@ pipeline {
                     sh '''
                         set -e
 
-                        SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10"
+                        SSH_OPTS="-n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=10"
 
                         echo "Criando diretório remoto..."
 
@@ -65,8 +59,12 @@ pipeline {
                         echo "Enviando aplicação..."
 
                         tar --exclude=node_modules -czf - -C app . | \
-                            ssh $SSH_OPTS vagrant@192.168.56.20 \
-                            "tar -xzf - -C /home/vagrant/app"
+                            ssh -o StrictHostKeyChecking=no \
+                                -o UserKnownHostsFile=/dev/null \
+                                -o BatchMode=yes \
+                                -o ConnectTimeout=10 \
+                                vagrant@192.168.56.20 \
+                                "tar -xzf - -C /home/vagrant/app"
 
                         echo "Instalando dependências de produção..."
 
@@ -76,35 +74,40 @@ pipeline {
                         echo "Parando aplicação anterior..."
 
                         ssh $SSH_OPTS vagrant@192.168.56.20 \
-                            "cd /home/vagrant/app && \
-                            if [ -f app.pid ]; then \
-                                kill \$(cat app.pid) 2>/dev/null || true; \
-                                rm -f app.pid; \
-                            fi"
+                            "pkill -f 'node server.js' || true"
 
-                        echo "Iniciando aplicação em background..."
+                        sleep 2
+
+                        echo "Iniciando aplicação..."
 
                         ssh $SSH_OPTS vagrant@192.168.56.20 \
-                            "cd /home/vagrant/app && \
-                            setsid nohup npm start > app.log 2>&1 < /dev/null &"
+                            "cd /home/vagrant/app && nohup npm start > app.log 2>&1 < /dev/null &"
 
-                        echo "Deploy concluído!"
+                        echo "Aguardando aplicação iniciar..."
+
+                        sleep 3
+
+                        echo "Verificando aplicação..."
+
+                        ssh $SSH_OPTS vagrant@192.168.56.20 \
+                            "curl -f http://localhost:3000/status"
+
+                        echo "Deploy concluído com sucesso!"
                     '''
                 }
 
                 echo "Etapa Finalizada"
             }
         }
-
     }
 
     post {
         success {
-            echo 'Pipeline executado com sucesso!'
+            echo "The Stages were a Success!"
         }
 
         failure {
-            echo 'O processo falhou!'
+            echo "The process has failed!"
         }
     }
 }
