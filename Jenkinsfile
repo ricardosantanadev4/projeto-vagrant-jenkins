@@ -76,7 +76,6 @@ pipeline {
                         ssh $SSH_OPTS vagrant@192.168.56.20 \
                             'PID=$(sudo lsof -t -i :3000); if [ -n "$PID" ]; then sudo kill "$PID"; fi'
 
-
                         sleep 2
 
                         echo "Iniciando aplicação..."
@@ -100,6 +99,7 @@ pipeline {
                 echo "Etapa Finalizada"
             }
         }
+
     }
 
     post {
