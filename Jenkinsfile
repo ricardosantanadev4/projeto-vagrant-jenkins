@@ -2,6 +2,13 @@ pipeline {
 
     agent any
 
+    environment {
+        SERVER = "vagrant@192.168.56.20"
+        REMOTE_DIR = "/home/vagrant/app"
+        RELEASE_DIR = "/home/vagrant/app-release"
+        APP_PORT = "3000"
+    }
+
     stages {
 
         stage("Install") {
@@ -9,7 +16,19 @@ pipeline {
                 echo "Instalação de dependências"
 
                 dir("app") {
-                    sh "npm install"
+                    sh '''
+                        set -e
+
+                        echo "Node:"
+                        node --version
+
+                        echo "NPM:"
+                        npm --version
+
+                        echo "Instalando dependências..."
+
+                        npm ci
+                    '''
                 }
             }
         }
@@ -19,7 +38,13 @@ pipeline {
                 echo "Etapa de Build"
 
                 dir("app") {
-                    sh "npm run build"
+                    sh '''
+                        set -e
+
+                        echo "Executando build..."
+
+                        npm run build
+                    '''
                 }
             }
         }
@@ -29,7 +54,13 @@ pipeline {
                 echo "Etapa de Testes"
 
                 dir("app") {
-                    sh "npm test"
+                    sh '''
+                        set -e
+
+                        echo "Executando testes..."
+
+                        npm test
+                    '''
                 }
             }
         }
@@ -48,59 +79,175 @@ pipeline {
                                   -o BatchMode=yes \
                                   -o ConnectTimeout=10"
 
-                        SERVER="vagrant@192.168.56.20"
-                        REMOTE_DIR="/home/vagrant/app"
+                        SERVER="${SERVER}"
+                        REMOTE_DIR="${REMOTE_DIR}"
+                        RELEASE_DIR="${RELEASE_DIR}"
+                        APP_PORT="${APP_PORT}"
 
-                        echo "Testando conexão SSH..."
+                        echo "======================================"
+                        echo "        INICIANDO DEPLOY"
+                        echo "======================================"
 
-                        ssh $SSH_OPTS $SERVER "echo 'Conexão SSH estabelecida!'"
+                        echo ""
+                        echo "1. Testando conexão SSH..."
 
-                        echo "Criando diretório remoto..."
+                        ssh $SSH_OPTS "$SERVER" "echo 'Conexão SSH estabelecida!'"
 
-                        ssh $SSH_OPTS $SERVER \
-                            "mkdir -p $REMOTE_DIR"
+                        echo ""
+                        echo "2. Preparando diretório de release..."
 
-                        echo "Limpando aplicação anterior..."
+                        ssh $SSH_OPTS "$SERVER" "
+                            set -e
 
-                        ssh $SSH_OPTS $SERVER \
-                            "rm -rf $REMOTE_DIR/*"
+                            rm -rf '$RELEASE_DIR'
+                            mkdir -p '$RELEASE_DIR'
+                        "
 
-                        echo "Enviando aplicação via SCP..."
+                        echo ""
+                        echo "3. Enviando aplicação..."
 
                         scp $SSH_OPTS -r app/* \
-                            $SERVER:$REMOTE_DIR/
+                            "$SERVER:$RELEASE_DIR/"
 
-                        echo "Instalando dependências de produção..."
+                        echo ""
+                        echo "4. Instalando dependências de produção..."
 
-                        ssh $SSH_OPTS $SERVER \
-                            "cd $REMOTE_DIR && npm install --omit=dev"
+                        ssh $SSH_OPTS "$SERVER" "
+                            set -e
 
-                        echo "Parando aplicação anterior..."
+                            cd '$RELEASE_DIR'
 
-                        ssh $SSH_OPTS $SERVER \
-                            'PID=$(sudo lsof -t -i :3000); \
-                             if [ -n "$PID" ]; then \
-                                 sudo kill "$PID"; \
-                             fi'
+                            npm ci --omit=dev
+                        "
 
-                        sleep 2
+                        echo ""
+                        echo "5. Validando arquivos da aplicação..."
 
-                        echo "Iniciando aplicação..."
+                        ssh $SSH_OPTS "$SERVER" "
+                            set -e
 
-                        ssh $SSH_OPTS $SERVER \
-                            "cd $REMOTE_DIR && \
-                             nohup npm start > app.log 2>&1 < /dev/null &"
+                            cd '$RELEASE_DIR'
 
-                        echo "Aguardando aplicação iniciar..."
+                            test -f package.json
+                            test -f server.js
+                        "
 
-                        sleep 3
+                        echo ""
+                        echo "6. Parando aplicação anterior..."
 
-                        echo "Verificando aplicação..."
+                        ssh $SSH_OPTS "$SERVER" '
+                            set -e
 
-                        ssh $SSH_OPTS $SERVER \
-                            "curl -f http://localhost:3000/status"
+                            PID=$(sudo lsof -t -i :'$APP_PORT' || true)
 
-                        echo "Deploy concluído com sucesso!"
+                            if [ -n "$PID" ]; then
+                                echo "Processo encontrado: $PID"
+                                echo "Enviando SIGTERM..."
+
+                                sudo kill -TERM $PID || true
+
+                                for i in $(seq 1 10); do
+
+                                    if ! sudo kill -0 $PID 2>/dev/null; then
+                                        echo "Processo encerrado."
+                                        break
+                                    fi
+
+                                    echo "Aguardando processo terminar..."
+                                    sleep 1
+                                done
+
+                                if sudo kill -0 $PID 2>/dev/null; then
+                                    echo "Processo não terminou. Enviando SIGKILL..."
+                                    sudo kill -KILL $PID || true
+                                fi
+
+                            else
+                                echo "Nenhuma aplicação rodando na porta '$APP_PORT'."
+                            fi
+                        '
+
+                        echo ""
+                        echo "7. Instalando nova versão..."
+
+                        ssh $SSH_OPTS "$SERVER" "
+                            set -e
+
+                            rm -rf '$REMOTE_DIR'
+                            mkdir -p '$REMOTE_DIR'
+
+                            cp -a '$RELEASE_DIR'/.' '$REMOTE_DIR'/
+
+                            rm -rf '$RELEASE_DIR'
+                        "
+
+                        echo ""
+                        echo "8. Iniciando aplicação..."
+
+                        ssh $SSH_OPTS "$SERVER" "
+                            cd '$REMOTE_DIR'
+
+                            nohup npm start > app.log 2>&1 < /dev/null &
+                        "
+
+                        echo ""
+                        echo "9. Aguardando aplicação iniciar..."
+
+                        for i in \$(seq 1 15); do
+
+                            echo "Health check - tentativa \$i/15"
+
+                            if ssh $SSH_OPTS "$SERVER" \
+                                "curl -fs http://localhost:$APP_PORT/status > /dev/null"
+                            then
+                                echo ""
+                                echo "======================================"
+                                echo "     APLICAÇÃO ESTÁ RESPONDENDO"
+                                echo "======================================"
+                                break
+                            fi
+
+                            if [ "\$i" -eq 15 ]; then
+
+                                echo ""
+                                echo "======================================"
+                                echo "       FALHA NO HEALTH CHECK"
+                                echo "======================================"
+
+                                echo ""
+                                echo "Logs da aplicação:"
+
+                                ssh $SSH_OPTS "$SERVER" \
+                                    "tail -n 100 '$REMOTE_DIR/app.log' || true"
+
+                                echo ""
+                                echo "Processos Node.js:"
+
+                                ssh $SSH_OPTS "$SERVER" \
+                                    "ps aux | grep '[n]ode' || true"
+
+                                echo ""
+                                echo "Porta $APP_PORT:"
+
+                                ssh $SSH_OPTS "$SERVER" \
+                                    "sudo lsof -i :$APP_PORT || true"
+
+                                exit 1
+                            fi
+
+                            sleep 2
+                        done
+
+                        echo ""
+                        echo "10. Validando processo..."
+
+                        ssh $SSH_OPTS "$SERVER" \
+                            "sudo lsof -i :$APP_PORT"
+
+                        echo ""
+                        echo "======================================"
+                        echo "       DEPLOY CONCLUÍDO!"
+                        echo "======================================"
                     '''
                 }
             }
@@ -108,12 +255,18 @@ pipeline {
     }
 
     post {
+
         success {
-            echo "The Stages were a Success!"
+            echo "Pipeline executada com sucesso!"
         }
 
         failure {
-            echo "The process has failed!"
+            echo "Pipeline falhou!"
+            echo "Verifique os logs da etapa que apresentou erro."
+        }
+
+        always {
+            echo "Pipeline finalizada."
         }
     }
 }
