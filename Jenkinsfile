@@ -78,12 +78,18 @@ pipeline {
                     rm -f application.tar.gz
 
                     tar \
-                        --exclude='app/node_modules' \
-                        --exclude='app/.git' \
+                        --exclude='node_modules' \
+                        --exclude='.git' \
                         -czf application.tar.gz \
-                        app/
+                        -C app .
 
+                    echo "Conteúdo do artefato:"
+
+                    tar -tzf application.tar.gz
+
+                    echo ""
                     echo "Artefato criado:"
+
                     ls -lh application.tar.gz
                 '''
             }
@@ -99,9 +105,9 @@ pipeline {
                         set -eu
 
                         SSH_OPTS="-o StrictHostKeyChecking=no \
-                                  -o UserKnownHostsFile=/dev/null \
-                                  -o BatchMode=yes \
-                                  -o ConnectTimeout=10"
+                                -o UserKnownHostsFile=/dev/null \
+                                -o BatchMode=yes \
+                                -o ConnectTimeout=10"
 
                         SERVER="${SERVER}"
                         REMOTE_DIR="${REMOTE_DIR}"
@@ -120,7 +126,7 @@ pipeline {
                         echo "Release: $RELEASE_ID"
 
                         # ==================================================
-                        # 1. SSH
+                        # 1. Testar conexão
                         # ==================================================
 
                         echo ""
@@ -130,11 +136,11 @@ pipeline {
                             "echo 'Conexão SSH estabelecida!'"
 
                         # ==================================================
-                        # 2. Preparar diretório remoto
+                        # 2. Criar diretório da release
                         # ==================================================
 
                         echo ""
-                        echo "2. Preparando diretório remoto..."
+                        echo "2. Criando diretório da release..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             set -eu
@@ -171,25 +177,28 @@ pipeline {
                         "
 
                         # ==================================================
-                        # 5. Ajustar estrutura
+                        # 5. Validar arquivos
                         # ==================================================
 
                         echo ""
-                        echo "5. Preparando estrutura da release..."
+                        echo "5. Validando release..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             set -eu
 
-                            if [ -d '$RELEASE_DIR/app' ]; then
+                            cd '$RELEASE_DIR'
 
-                                cp -a '$RELEASE_DIR/app'/.' '$RELEASE_DIR'/ 
-                                rm -rf '$RELEASE_DIR/app'
+                            test -f package.json
+                            test -f package-lock.json
+                            test -f server.js
 
-                            fi
+                            echo 'package.json: OK'
+                            echo 'package-lock.json: OK'
+                            echo 'server.js: OK'
                         "
 
                         # ==================================================
-                        # 6. Instalar dependências de produção
+                        # 6. Instalar dependências
                         # ==================================================
 
                         echo ""
@@ -204,47 +213,29 @@ pipeline {
                         "
 
                         # ==================================================
-                        # 7. Validar release
+                        # 7. Verificar aplicação atual
                         # ==================================================
 
                         echo ""
-                        echo "7. Validando release..."
+                        echo "7. Verificando aplicação atual..."
 
-                        ssh $SSH_OPTS "$SERVER" "
-                            set -eu
+                        ssh $SSH_OPTS "$SERVER" '
+                            PID=$(sudo lsof -t -i :3000 2>/dev/null || true)
 
-                            cd '$RELEASE_DIR'
-
-                            test -f package.json
-                            test -f server.js
-                            test -d node_modules
-
-                            echo 'Arquivos principais encontrados.'
-                            echo 'Release validada.'
-                        "
+                            if [ -n "$PID" ]; then
+                                echo "Aplicação atual encontrada."
+                                echo "PID: $PID"
+                            else
+                                echo "Nenhuma aplicação atual encontrada."
+                            fi
+                        '
 
                         # ==================================================
-                        # 8. Verificar aplicação atual
+                        # 8. Parar aplicação atual
                         # ==================================================
 
                         echo ""
-                        echo "8. Verificando aplicação atual..."
-
-                        OLD_PID=$(ssh $SSH_OPTS "$SERVER" \
-                            "sudo lsof -t -i :$APP_PORT 2>/dev/null || true")
-
-                        if [ -n "$OLD_PID" ]; then
-                            echo "Aplicação atual encontrada. PID: $OLD_PID"
-                        else
-                            echo "Nenhuma aplicação atual encontrada."
-                        fi
-
-                        # ==================================================
-                        # 9. Parar aplicação
-                        # ==================================================
-
-                        echo ""
-                        echo "9. Parando aplicação anterior..."
+                        echo "8. Parando aplicação anterior..."
 
                         ssh $SSH_OPTS "$SERVER" '
                             set -eu
@@ -253,7 +244,7 @@ pipeline {
 
                             if [ -n "$PID" ]; then
 
-                                echo "Parando PID: $PID"
+                                echo "Enviando SIGTERM para PID $PID..."
 
                                 sudo kill -TERM "$PID" || true
 
@@ -264,7 +255,7 @@ pipeline {
                                         break
                                     fi
 
-                                    echo "Aguardando encerramento..."
+                                    echo "Aguardando processo encerrar..."
                                     sleep 1
 
                                 done
@@ -272,6 +263,7 @@ pipeline {
                                 if sudo kill -0 "$PID" 2>/dev/null; then
 
                                     echo "Processo não encerrou."
+                                    echo "Enviando SIGKILL..."
 
                                     sudo kill -KILL "$PID" || true
 
@@ -286,11 +278,11 @@ pipeline {
                         '
 
                         # ==================================================
-                        # 10. Backup da versão atual
+                        # 9. Backup
                         # ==================================================
 
                         echo ""
-                        echo "10. Criando backup..."
+                        echo "9. Criando backup da versão atual..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             set -eu
@@ -303,11 +295,11 @@ pipeline {
                         "
 
                         # ==================================================
-                        # 11. Ativar nova release
+                        # 10. Ativar nova release
                         # ==================================================
 
                         echo ""
-                        echo "11. Ativando nova release..."
+                        echo "10. Ativando nova release..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             set -eu
@@ -316,11 +308,11 @@ pipeline {
                         "
 
                         # ==================================================
-                        # 12. Iniciar aplicação
+                        # 11. Iniciar aplicação
                         # ==================================================
 
                         echo ""
-                        echo "12. Iniciando aplicação..."
+                        echo "11. Iniciando aplicação..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             set -eu
@@ -331,11 +323,11 @@ pipeline {
                         "
 
                         # ==================================================
-                        # 13. Health check
+                        # 12. Health check
                         # ==================================================
 
                         echo ""
-                        echo "13. Executando health check..."
+                        echo "12. Executando health check..."
 
                         DEPLOY_OK=false
 
@@ -352,6 +344,7 @@ pipeline {
                                 DEPLOY_OK=true
 
                                 break
+
                             fi
 
                             sleep 2
@@ -359,7 +352,7 @@ pipeline {
                         done
 
                         # ==================================================
-                        # 14. Rollback
+                        # 13. Rollback
                         # ==================================================
 
                         if [ "$DEPLOY_OK" != "true" ]; then
@@ -376,7 +369,7 @@ pipeline {
                                 "tail -n 100 '$REMOTE_DIR/app.log' || true"
 
                             echo ""
-                            echo "Processos Node:"
+                            echo "Processos Node.js:"
 
                             ssh $SSH_OPTS "$SERVER" \
                                 "ps aux | grep '[n]ode' || true"
@@ -416,26 +409,25 @@ pipeline {
                         fi
 
                         # ==================================================
-                        # 15. Remover backup
+                        # 14. Limpeza
                         # ==================================================
 
                         echo ""
-                        echo "14. Limpando backup..."
+                        echo "13. Removendo backup..."
 
                         ssh $SSH_OPTS "$SERVER" "
                             rm -rf '${REMOTE_DIR}.backup'
                         "
 
                         # ==================================================
-                        # 16. Validação final
+                        # 15. Validação final
                         # ==================================================
 
                         echo ""
-                        echo "15. Validação final..."
+                        echo "14. Validação final..."
 
-                        ssh $SSH_OPTS "$SERVER" "
-                            sudo lsof -i :$APP_PORT
-                        "
+                        ssh $SSH_OPTS "$SERVER" \
+                            "sudo lsof -i :$APP_PORT"
 
                         echo ""
                         echo "======================================"
@@ -445,6 +437,7 @@ pipeline {
                 }
             }
         }
+
     }
 
     post {
