@@ -71,10 +71,23 @@ pipeline {
                 echo "Etapa de Deploy"
 
                 sshagent(credentials: ["ssh_key"]) {
-                    sh 'scp -r app/* vagrant@192.168.56.20:/home/vagrant/app/'
+                    sh '''
+                        set -eu
+
+                        mkdir -p ~/.ssh
+                        chmod 700 ~/.ssh
+
+                        ssh-keyscan -H 192.168.56.20 >> ~/.ssh/known_hosts
+
+                        scp -r \
+                            app/* \
+                            vagrant@192.168.56.20:/home/vagrant/app/
+                    '''
                 }
             }
         }
+
+
 
     }
 
